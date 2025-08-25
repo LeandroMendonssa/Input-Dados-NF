@@ -13,7 +13,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   
   <style>
-    /* ... (O CSS completo do código anterior) ... */
     :root {
       --bg-primary: #f0f2f5;
       --bg-card: #ffffff;
@@ -1094,27 +1093,10 @@
         cursor: pointer;
         padding: 0;
     }
+    
   </style>
-  
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <script>
-    // Seus dados de configuração do Firebase.
-    const firebaseConfig = {
-      apiKey: "AIzaSyAwcvJNJhLZ4Wqcw4Wz44XJ9kIdtqKJeJg",
-      authDomain: "relacaonf.firebaseapp.com",
-      projectId: "relacaonf",
-      // storageBucket: "relacaonf.firebasestorage.app", // Removido
-      messagingSenderId: "773864981925",
-      appId: "1:773864981925:web:a4dadc51ec0a856832144c"
-    };
-
-    // Inicializa o Firebase
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    // const storage = firebase.storage(); // Removido
-  </script>
-
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
 </head>
 <body>
   
@@ -1178,9 +1160,9 @@
         <label for="fotos" class="file-input-label">
           <i class="fas fa-camera"></i> Selecionar Imagens
         </label>
-        <input type="file" id="fotos" multiple accept="image/*"/>
+        <input type="file" id="fotos" multiple accept="image/*" />
         <div class="status-container">
-            <span class="hint" id="fileCountHint">Nenhuma imagem selecionada.</span>
+            <span class="hint" id="fileCountHint">Nenhuma imagem acumulada.</span>
         </div>
         <div id="miniaturas-container"></div>
       </div>
@@ -1292,23 +1274,50 @@
         <button id="prevBtn" onclick="navegarFotos(-1)"><i class="fas fa-chevron-left"></i></button>
         <button id="nextBtn" onclick="navegarFotos(1)"><i class="fas fa-chevron-right"></i></button>
     </div>
+    <div class="modal-preview-bottom">
+      <button class="modal-preview-save" onclick="salvarFotoPreview()">
+          <i class="fas fa-download"></i> Salvar Imagem
+      </button>
+      <button class="modal-preview-delete" onclick="excluirFotoPreview()">
+          <i class="fas fa-trash-alt"></i> Excluir
+      </button>
+    </div>
   </div>
 
   <div id="toast" class="toast">✓ Linhas copiadas! Agora é só colar no Excel.</div>
 
 <script>
+  // ** CONFIGURAÇÃO DO FIREBASE **
+  // Substitua as informações abaixo pelas suas credenciais do Firebase
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_AUTH_DOMAIN",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_STORAGE_BUCKET",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  // Inicializa o Firebase
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+  
+  // ** FIM DA CONFIGURAÇÃO FIREBASE **
+
+
   let notasPendentes = [];
   let historicoNotas = [];
+  let fotosAcumuladas = [];
   let fornecedoresSugeridos = [];
-  let observacoesSugeridas = [];
+  let observacoesSugeridas = []; // Nova variável para as observações
   let pedidosRecursos = {};
+  let fotoAtualIndex = 0;
+  let fotoAtualFonte = 'acumulada'; // 'acumulada' ou 'nota'
+  let fotoAtualNotaIndex = null;
   
   const itensPorPagina = 10;
   let paginaAtualNotas = 1;
   let paginaAtualHistorico = 1;
-  
-  let fotosSelecionadas = []; // Array para armazenar os arquivos de imagem localmente
-  let fotoAtualIndex = 0;
   
   const dataEl = document.getElementById('data');
   const nfEl = document.getElementById('nf');
@@ -1334,101 +1343,118 @@
   const pedidoNumInput = document.getElementById('pedido-num');
   const pedidoRecursoSelect = document.getElementById('pedido-recurso');
   
-  const listaObservacoesManageEl = document.getElementById('lista-observacoes-manage');
-  const obsManageInput = document.getElementById('obs-manage');
-  
+  const listaObservacoesManageEl = document.getElementById('lista-observacoes-manage'); // Novo elemento
+  const obsManageInput = document.getElementById('obs-manage'); // Novo input
+
   const popups = document.querySelectorAll('.popup-modal');
   
-  // FUNÇÕES DO FIRESTORE (substituindo o IndexedDB)
-  async function saveNoteFirestore(nota) {
+  // FUNÇÕES DO FIREBASE (substituindo o IndexedDB)
+  async function saveNoteDB(nota) {
       try {
+          // Remover o campo 'fotos' para não salvar no Firestore
+          const notaParaSalvar = {...nota};
+          delete notaParaSalvar.fotos;
+          
+          let docRef;
           if (nota.id) {
-              await db.collection("notas").doc(nota.id).set(nota);
+              docRef = await db.collection('notas').doc(nota.id).set(notaParaSalvar);
               return nota.id;
           } else {
-              const docRef = await db.collection("notas").add(nota);
+              docRef = await db.collection('notas').add(notaParaSalvar);
               return docRef.id;
           }
       } catch (e) {
-          console.error("Erro ao salvar nota no Firestore: ", e);
+          console.error("Erro ao salvar nota no Firestore:", e);
           throw e;
       }
   }
 
-  async function saveHistoryNoteFirestore(nota) {
+  async function saveHistoryNoteDB(nota) {
       try {
-          await db.collection("historico").add(nota);
+          const notaParaSalvar = {
+              fornecedor: nota.fornecedor,
+              nf: nota.nf,
+              dataHistorico: new Date().toISOString()
+          };
+          await db.collection('historico').add(notaParaSalvar);
       } catch (e) {
-          console.error("Erro ao salvar nota no histórico do Firestore: ", e);
+          console.error("Erro ao salvar histórico no Firestore:", e);
           throw e;
       }
   }
 
-  async function getNotesFirestore() {
+  async function getNotesDB() {
       try {
-          const snapshot = await db.collection("notas").get();
-          const notas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const snapshot = await db.collection('notas').get();
+          const notas = [];
+          snapshot.forEach(doc => {
+              notas.push({ id: doc.id, ...doc.data(), fotos: [] }); // Adiciona o campo fotos vazio
+          });
           return notas;
       } catch (e) {
-          console.error("Erro ao buscar notas do Firestore: ", e);
+          console.error("Erro ao obter notas do Firestore:", e);
           return [];
       }
   }
 
-  async function getHistoryNotesFirestore() {
+  async function getHistoryNotesDB() {
       try {
-          const snapshot = await db.collection("historico").get();
-          const historico = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const snapshot = await db.collection('historico').orderBy('dataHistorico', 'desc').get();
+          const historico = [];
+          snapshot.forEach(doc => {
+              historico.push({ id: doc.id, ...doc.data() });
+          });
           return historico;
       } catch (e) {
-          console.error("Erro ao buscar histórico do Firestore: ", e);
+          console.error("Erro ao obter histórico do Firestore:", e);
           return [];
       }
   }
 
-  async function deleteNoteFirestore(id) {
+  async function deleteNoteDB(id) {
       try {
-          await db.collection("notas").doc(id).delete();
+          await db.collection('notas').doc(id).delete();
       } catch (e) {
-          console.error("Erro ao deletar nota do Firestore: ", e);
-          throw e;
-      }
-  }
-
-  async function deleteAllNotesFirestore() {
-      try {
-          const snapshot = await db.collection("notas").get();
-          const batch = db.batch();
-          snapshot.docs.forEach((doc) => {
-              batch.delete(doc.ref);
-          });
-          await batch.commit();
-      } catch (e) {
-          console.error("Erro ao deletar todas as notas do Firestore: ", e);
+          console.error("Erro ao deletar nota do Firestore:", e);
           throw e;
       }
   }
   
-  async function deleteAllHistoryFirestore() {
-      try {
-          const snapshot = await db.collection("historico").get();
-          const batch = db.batch();
-          snapshot.docs.forEach((doc) => {
-              batch.delete(doc.ref);
-          });
-          await batch.commit();
-      } catch (e) {
-          console.error("Erro ao deletar todo o histórico do Firestore: ", e);
-          throw e;
-      }
+  async function deleteAllNotesDB() {
+    try {
+        const batch = db.batch();
+        const snapshot = await db.collection('notas').get();
+        snapshot.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+    } catch (e) {
+        console.error("Erro ao deletar todas as notas:", e);
+        throw e;
+    }
+  }
+
+  async function deleteAllHistoryDB() {
+    try {
+        const batch = db.batch();
+        const snapshot = await db.collection('historico').get();
+        snapshot.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+    } catch (e) {
+        console.error("Erro ao deletar histórico:", e);
+        throw e;
+    }
   }
   
   async function carregarEstado() {
+      // Carrega dados do localStorage
       const savedForn = localStorage.getItem('fornecedores');
       if (savedForn) fornecedoresSugeridos = JSON.parse(savedForn);
       popularDatalist(fornDatalist);
 
-      const savedObs = localStorage.getItem('observacoes');
+      const savedObs = localStorage.getItem('observacoes'); // Carrega observações
       if (savedObs) observacoesSugeridas = JSON.parse(savedObs);
       popularObservacoesList();
       
@@ -1441,11 +1467,13 @@
           document.getElementById('theme-toggle').innerHTML = '<i class="fas fa-sun"></i>';
       }
       
+      // Carrega notas e histórico do Firestore
       try {
-        notasPendentes = await getNotesFirestore();
-        historicoNotas = await getHistoryNotesFirestore();
+        notasPendentes = await getNotesDB();
+        historicoNotas = await getHistoryNotesDB();
       } catch (e) {
-        console.error("Erro ao carregar dados do Firestore:", e);
+        console.error("Erro ao carregar dados do Firebase:", e);
+        // Em caso de erro, inicia com arrays vazios
         notasPendentes = [];
         historicoNotas = [];
       }
@@ -1456,8 +1484,9 @@
   }
   
   async function salvarEstado() {
+    // Salva fornecedores, observações e pedidos no localStorage
     localStorage.setItem('fornecedores', JSON.stringify(fornecedoresSugeridos));
-    localStorage.setItem('observacoes', JSON.stringify(observacoesSugeridas));
+    localStorage.setItem('observacoes', JSON.stringify(observacoesSugeridas)); // Salva observações
     localStorage.setItem('pedidosRecursos', JSON.stringify(pedidosRecursos));
   }
   
@@ -1496,6 +1525,7 @@
   }
 
   function popularObservacoesList() {
+    // Popula a lista suspensa do formulário principal
     obsEl.innerHTML = '';
     const placeholderOpt = document.createElement('option');
     placeholderOpt.value = '';
@@ -1508,6 +1538,7 @@
       obsEl.appendChild(option);
     });
 
+    // Popula a lista do modal de gerenciamento
     listaObservacoesManageEl.innerHTML = '';
     observacoesSugeridas.sort().forEach(obs => {
       const li = document.createElement('li');
@@ -1621,6 +1652,7 @@
     let vencimentoSaida = nota.vencimento;
     let obsSaida = nota.obs;
 
+    // Lógica para a modalidade REMESSA
     if (nota.obs === "REMESSA") {
       vencimentoSaida = "REMESSA";
       obsSaida = "Recurso Proprio Santa Casa";
@@ -1667,6 +1699,7 @@
     listaNotasPendentes.innerHTML = '';
     paginaAtualNotas = pagina;
     
+    // Inverte a lista para mostrar as notas mais novas no topo
     const notasInvertidas = [...notasPendentes].reverse();
     
     const inicio = (pagina - 1) * itensPorPagina;
@@ -1680,26 +1713,39 @@
     }
     
     notasPagina.forEach((nota, index) => {
+      // Encontra o índice original da nota no array notasPendentes
       const globalIndex = notasPendentes.findIndex(n => n.id === nota.id);
       
       const li = document.createElement('li');
       li.classList.add('nota-item');
-      li.dataset.noteId = nota.id;
+      li.dataset.noteId = nota.id; // Adicionado para a correção
       if (nota.enviada) li.classList.add('nota-enviada');
       
       let fotoStatusHTML = '';
       if (!nota.enviada) {
-        fotoStatusHTML = `
-          <button class="whatsapp-btn" onclick="compartilharNota(${globalIndex})" title="Compartilhar via WhatsApp">
-            <i class="fab fa-whatsapp"></i>
-          </button>
-          <button class="edit-btn" onclick="toggleEditPanel(this, ${globalIndex})" title="Editar nota">
-            <i class="fas fa-pen"></i>
-          </button>
-          <button class="delete-btn" onclick="deletarNota(${globalIndex})" title="Excluir nota">
-            <i class="fas fa-trash"></i>
-          </button>
-        `;
+        if (nota.fotos && nota.fotos.length > 0) {
+          fotoStatusHTML = `
+            <button class="whatsapp-btn" onclick="compartilharNota(${globalIndex})" title="Compartilhar via WhatsApp">
+              <i class="fab fa-whatsapp"></i>
+            </button>
+            <button class="edit-btn" onclick="toggleEditPanel(this, ${globalIndex})" title="Editar nota">
+              <i class="fas fa-pen"></i>
+            </button>
+            <button class="delete-btn" onclick="deletarNota(${globalIndex})" title="Excluir nota">
+              <i class="fas fa-trash"></i>
+            </button>
+          `;
+        } else {
+          fotoStatusHTML = `
+            <span class="sem-fotos">SEM FOTOS</span>
+            <button class="edit-btn" onclick="toggleEditPanel(this, ${globalIndex})" title="Editar nota">
+              <i class="fas fa-pen"></i>
+            </button>
+            <button class="delete-btn" onclick="deletarNota(${globalIndex})" title="Excluir nota">
+              <i class="fas fa-trash"></i>
+            </button>
+          `;
+        }
       } else {
         fotoStatusHTML = `
           <button class="sent-btn" onclick="toggleEditPanel(this, ${globalIndex})" title="Fotos Enviadas">
@@ -1714,6 +1760,7 @@
         `;
       }
       
+      // Implementação da exibição da observação nos cards
       const obsDisplay = nota.obs ? ` | Obs: ${nota.obs}` : '';
 
       li.innerHTML = `
@@ -1752,6 +1799,8 @@
                 <select id="obsEdit-${globalIndex}"></select>
             </div>
           </div>
+          <div class="campo fotos-edit-container-${globalIndex}">
+            </div>
           <div class="actions">
             <button style="background:var(--button-success);color:#fff; flex: 1;" onclick="salvarEdicao(${globalIndex})">
               <i class="fas fa-save"></i> Salvar
@@ -1762,6 +1811,7 @@
       listaNotasPendentes.appendChild(li);
       
       const obsSelectEdit = li.querySelector(`#obsEdit-${globalIndex}`);
+      // Populando a lista de observações no painel de edição
       const placeholderOpt = document.createElement('option');
       placeholderOpt.value = '';
       placeholderOpt.textContent = 'Recurso a ser pago';
@@ -1773,9 +1823,50 @@
           obsSelectEdit.appendChild(optEl);
       });
       obsSelectEdit.value = nota.obs;
+
+      reconstruirPainelFotosEdit(globalIndex);
     });
     
     criarPaginacao(paginacaoNotasEl, notasPendentes.length, pagina, 'notas');
+  }
+
+  function reconstruirPainelFotosEdit(globalIndex) {
+      const container = document.querySelector(`.fotos-edit-container-${globalIndex}`);
+      const nota = notasPendentes[globalIndex];
+      container.innerHTML = '';
+  
+      if (nota.enviada) {
+          container.innerHTML = `
+              <div class="fotos-enviadas-status">
+                  <i class="fas fa-check-circle"></i> Fotos já enviadas!
+              </div>
+          `;
+      } else {
+          container.innerHTML = `
+              <label for="edit-fotos-${globalIndex}">Anexar Imagens</label>
+              <label for="edit-fotos-${globalIndex}" class="file-input-label">
+                <i class="fas fa-camera"></i> Selecionar Imagens
+              </label>
+              <input type="file" id="edit-fotos-${globalIndex}" class="edit-file-input" multiple accept="image/*" />
+              <div class="miniaturas-container-edit" id="miniaturas-container-edit-${globalIndex}"></div>
+              ${nota.fotos && nota.fotos.length > 0 ?
+                `<button class="actions-button" style="background: var(--button-danger); color: white; width: 100%; border: none; padding: 14px 20px; border-radius: var(--radius); margin-top: 10px; font-weight: 500; font-size: 15px;" onclick="limparFotosNota(${globalIndex})"><i class="fas fa-trash"></i> Limpar Fotos</button>` : ''}
+          `;
+          
+          const editFotosInput = container.querySelector(`#edit-fotos-${globalIndex}`);
+          editFotosInput.addEventListener('change', async (e) => {
+              const files = Array.from(e.target.files);
+              if (!notasPendentes[globalIndex].fotos) {
+                  notasPendentes[globalIndex].fotos = [];
+              }
+              notasPendentes[globalIndex].fotos = notasPendentes[globalIndex].fotos.concat(files);
+              await saveNoteDB(notasPendentes[globalIndex]);
+              reconstruirMiniaturasEdit(globalIndex);
+              rebuildNotasPendentesList(paginaAtualNotas);
+          });
+          
+          reconstruirMiniaturasEdit(globalIndex);
+      }
   }
 
   function popularListaHistorico() {
@@ -1793,7 +1884,7 @@
       li.innerHTML = `
         <div class="nota-info"><b>${getFirstWord(nota.fornecedor)} - ${nota.nf || 'N/A'}</b></div>
         <div class="historico-detalhes">
-          Movido para histórico em: ${nota.dataHistorico}
+          Movido para histórico em: ${formatarDataHora(nota.dataHistorico)}
         </div>
       `;
       listaHistoricoEl.appendChild(li);
@@ -1802,13 +1893,76 @@
 
   async function limparHistorico() {
     if (confirm("Tem certeza que deseja apagar todo o histórico de notas? Essa ação é irreversível.")) {
-      await deleteAllHistoryFirestore();
+      await deleteAllHistoryDB();
       historicoNotas = [];
       popularListaHistorico();
       toast("Histórico limpo com sucesso!");
     }
   }
   
+  function reconstruirMiniaturasEdit(globalIndex) {
+      const container = document.getElementById(`miniaturas-container-edit-${globalIndex}`);
+      const nota = notasPendentes[globalIndex];
+      container.innerHTML = '';
+
+      if (!nota.fotos || nota.fotos.length === 0) {
+          const p = document.createElement('p');
+          p.textContent = "Nenhuma foto anexada.";
+          p.style.fontSize = '12px';
+          p.style.color = 'var(--text-light)';
+          container.appendChild(p);
+          return;
+      }
+      
+      nota.fotos.forEach((file, i) => {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'miniatura-wrapper';
+          
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              const img = document.createElement('img');
+              img.src = event.target.result;
+              img.onclick = () => abrirPreview(nota.fotos, i, globalIndex);
+              
+              if (!nota.enviada) {
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'remove-foto';
+                removeBtn.innerHTML = '×';
+                removeBtn.onclick = async (e) => {
+                    e.stopPropagation();
+                    await removerFotoEdit(globalIndex, i);
+                };
+                wrapper.appendChild(removeBtn);
+              }
+              
+              wrapper.appendChild(img);
+              container.appendChild(wrapper);
+          };
+          reader.readAsDataURL(file);
+      });
+  }
+
+  async function removerFotoEdit(globalIndex, fotoIndex) {
+      if (confirm("Remover esta imagem da nota?")) {
+          const nota = notasPendentes[globalIndex];
+          nota.fotos.splice(fotoIndex, 1);
+          await saveNoteDB(nota);
+          reconstruirMiniaturasEdit(globalIndex);
+          rebuildNotasPendentesList(paginaAtualNotas);
+          toast("Imagem removida da nota.");
+      }
+  }
+  
+  async function limparFotosNota(index) {
+      if (confirm("Tem certeza que deseja limpar todas as fotos desta nota?")) {
+          const nota = notasPendentes[index];
+          nota.fotos = [];
+          await saveNoteDB(nota);
+          rebuildNotasPendentesList(paginaAtualNotas);
+          toast("Imagens da nota limpas!");
+      }
+  }
+
   function togglePopup(idPopup) {
       const popup = document.getElementById(idPopup);
       if (popup.style.display === 'flex') {
@@ -1880,7 +2034,7 @@
       
       adicionarFornecedor(nota.fornecedor);
 
-      await saveNoteFirestore(nota);
+      await saveNoteDB(nota);
       rebuildSaida();
       rebuildNotasPendentesList(paginaAtualNotas);
       toast('✓ Nota editada e salva!');
@@ -1889,10 +2043,8 @@
 
   async function deletarNota(index) {
     if (confirm("Tem certeza que deseja excluir esta nota?")) {
-      const notaToDelete = notasPendentes[index];
-      const idToDelete = notaToDelete.id;
-      
-      await deleteNoteFirestore(idToDelete);
+      const idToDelete = notasPendentes[index].id;
+      await deleteNoteDB(idToDelete);
       
       notasPendentes.splice(index, 1);
       rebuildSaida();
@@ -1932,14 +2084,15 @@
         const notaHistorico = {
             fornecedor: nota.fornecedor,
             nf: nota.nf,
-            dataHistorico: formatarDataHora(new Date())
+            dataHistorico: nota.dataCriacao || new Date().toISOString()
         };
-        await saveHistoryNoteFirestore(notaHistorico);
+        await saveHistoryNoteDB(notaHistorico);
     }
     
-    await deleteAllNotesFirestore();
+    await deleteAllNotesDB();
     notasPendentes = [];
-    historicoNotas = await getHistoryNotesFirestore();
+    historicoNotas = await getHistoryNotesDB();
+    fotosAcumuladas = [];
     
     rebuildSaida();
     
@@ -1954,18 +2107,87 @@
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const year = today.getFullYear();
     dataEl.value = `${day}/${month}/${year}`;
-    
-    fotosEl.value = '';
-    fotosSelecionadas = [];
-    miniaturasContainer.innerHTML = '';
-    fileCountHintEl.textContent = 'Nenhuma imagem selecionada.';
-    fileLabelEl.classList.remove('active');
 
+    fotosContainer.style.display = 'block';
+    fileCountHintEl.textContent = 'Nenhuma imagem acumulada.';
+    fileLabelEl.classList.remove('active', 'disabled');
+    fileLabelEl.style.cursor = 'pointer';
+    fotosEl.disabled = false;
+    miniaturasContainer.innerHTML = '';
     rebuildNotasPendentesList(1);
     
     toast("Conteúdo limpo e notas movidas para o histórico.");
 
-    nfEl.focus();
+    nfEl.focus(); // Coloca o cursor no campo NF
+  }
+
+  async function gerarImagemSeparadora(fornecedor, nf) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const width = 600;
+      const height = 150;
+      canvas.width = width;
+      canvas.height = height;
+
+      ctx.fillStyle = '#34495e';
+      ctx.fillRect(0, 0, width, height);
+      
+      ctx.fillStyle = '#ecf0f1';
+      ctx.font = 'bold 30px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      
+      const texto = `${fornecedor} ${nf}`;
+      const marcador = `↓`;
+      
+      ctx.fillText(texto, width / 2, height / 2 - 10);
+      
+      ctx.font = '50px sans-serif';
+      ctx.fillText(marcador, width / 2, height / 2 + 50);
+
+      return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  }
+
+  async function compartilharNota(index) {
+    try {
+      if (!navigator.share) {
+        toast("O compartilhamento de arquivos não é suportado pelo seu navegador.");
+        return;
+      }
+      
+      const nota = notasPendentes[index];
+      const imagemSeparadora = await gerarImagemSeparadora(nota.fornecedor, nota.nf);
+      const arquivosParaCompartilhar = [];
+      
+      arquivosParaCompartilhar.push(new File([imagemSeparadora], 'separador.png', { type: 'image/png' }));
+      
+      for (const foto of nota.fotos) {
+        arquivosParaCompartilhar.push(foto);
+      }
+      
+      const textoCompartilhar = `${nota.fornecedor} ${nota.nf || ''}`;
+      
+      if (navigator.canShare({ files: arquivosParaCompartilhar, text: textoCompartilhar })) {
+        await navigator.share({
+          files: arquivosParaCompartilhar,
+          text: textoCompartilhar
+        });
+        
+        nota.enviada = true;
+        nota.fotos = [];
+        await saveNoteDB(nota);
+        rebuildNotasPendentesList(paginaAtualNotas);
+        toast("✓ Conteúdo enviado com sucesso!");
+      } else {
+        toast("O compartilhamento de múltiplas fotos não é suportado pelo seu navegador.");
+      }
+    } catch (error) {
+      console.error('Erro ao compartilhar:', error);
+      if (error.name !== 'AbortError') {
+        toast("Erro ao compartilhar. Tente novamente.");
+      } else {
+        console.log("Compartilhamento cancelado pelo usuário.");
+      }
+    }
   }
 
   function adicionarPedido() {
@@ -2014,6 +2236,7 @@
     }
   }
 
+  // FUNÇÕES PARA ADICIONAR/DELETAR OBSERVAÇÕES
   function adicionarObservacaoManage() {
       const obs = obsManageInput.value.trim();
       if (obs) {
@@ -2033,64 +2256,124 @@
           toast(`Observação "${obs}" excluída.`);
       }
   }
-  
-  function mostrarMiniaturas() {
-    miniaturasContainer.innerHTML = '';
-    fotosSelecionadas.forEach((file, index) => {
-        const miniaturaWrapper = document.createElement('div');
-        miniaturaWrapper.classList.add('miniatura-wrapper');
-
-        const img = document.createElement('img');
-        img.src = URL.createObjectURL(file);
-        img.dataset.index = index;
-        img.onclick = () => abrirPreview(index);
-
-        const removeBtn = document.createElement('button');
-        removeBtn.classList.add('remove-foto');
-        removeBtn.innerHTML = '&times;';
-        removeBtn.onclick = (e) => {
-            e.stopPropagation();
-            removerFoto(index);
-        };
-        
-        miniaturaWrapper.appendChild(img);
-        miniaturaWrapper.appendChild(removeBtn);
-        miniaturasContainer.appendChild(miniaturaWrapper);
-    });
-
-    fileCountHintEl.textContent = `${fotosSelecionadas.length} imagem(s) selecionada(s).`;
-    if (fotosSelecionadas.length > 0) {
-        fileLabelEl.classList.add('active');
-    } else {
-        fileLabelEl.classList.remove('active');
-    }
-  }
 
   function removerFoto(index) {
-    if (confirm("Tem certeza que deseja excluir esta foto?")) {
-        fotosSelecionadas.splice(index, 1);
-        mostrarMiniaturas();
-        toast('Imagem removida.');
+    if (confirm("Remover esta imagem?")) {
+      fotosAcumuladas.splice(index, 1);
+      fileCountHintEl.textContent = `${fotosAcumuladas.length} imagem(ns) acumulada(s).`;
+      
+      reconstruirMiniaturas();
+      
+      if (fotosAcumuladas.length === 0) {
+        fileLabelEl.classList.remove('active');
+      }
     }
   }
+  
+  function reconstruirMiniaturas() {
+      miniaturasContainer.innerHTML = '';
+      fotosAcumuladas.forEach((file, i) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'miniatura-wrapper';
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = document.createElement('img');
+          img.src = event.target.result;
+          img.onclick = () => abrirPreview(fotosAcumuladas, i, null);
+          
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'remove-foto';
+          removeBtn.innerHTML = '×';
+          removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            removerFoto(i);
+          };
+          
+          wrapper.appendChild(img);
+          wrapper.appendChild(removeBtn);
+          miniaturasContainer.appendChild(wrapper);
+        };
+        reader.readAsDataURL(file);
+      });
+  }
 
-  function abrirPreview(index) {
+  function abrirPreview(fotos, index, notaIndex) {
     const modal = document.getElementById('modalPreview');
     const imgPreview = document.getElementById('imgPreview');
-    imgPreview.src = URL.createObjectURL(fotosSelecionadas[index]);
-    modal.style.display = 'flex';
     fotoAtualIndex = index;
+    fotoAtualNotaIndex = notaIndex;
+    fotoAtualFonte = notaIndex !== null ? 'nota' : 'acumulada';
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        imgPreview.src = event.target.result;
+        modal.style.display = 'flex';
+    };
+    reader.readAsDataURL(fotos[index]);
+
+    document.getElementById('prevBtn').style.display = index > 0 ? 'block' : 'none';
+    document.getElementById('nextBtn').style.display = index < fotos.length - 1 ? 'block' : 'none';
   }
-  
+
   function fecharPreview() {
-    document.getElementById('modalPreview').style.display = 'none';
+    const modal = document.getElementById('modalPreview');
+    modal.style.display = 'none';
   }
-  
+
   function navegarFotos(direcao) {
-    fotoAtualIndex = (fotoAtualIndex + direcao + fotosSelecionadas.length) % fotosSelecionadas.length;
-    document.getElementById('imgPreview').src = URL.createObjectURL(fotosSelecionadas[fotoAtualIndex]);
+      const fotosAtivas = fotoAtualFonte === 'acumulada' ? fotosAcumuladas : notasPendentes[fotoAtualNotaIndex].fotos;
+      let novoIndex = fotoAtualIndex + direcao;
+
+      if (novoIndex >= 0 && novoIndex < fotosAtivas.length) {
+          abrirPreview(fotosAtivas, novoIndex, fotoAtualNotaIndex);
+      }
   }
-  
+
+  function salvarFotoPreview() {
+      const img = document.getElementById('imgPreview');
+      if (!img.src) {
+          toast("Nenhuma imagem para salvar.");
+          return;
+      }
+      
+      const link = document.createElement('a');
+      link.href = img.src;
+      link.download = `nota_fiscal_${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast("Imagem salva com sucesso!");
+  }
+
+  async function excluirFotoPreview() {
+      if (confirm("Tem certeza que deseja excluir esta imagem?")) {
+          if (fotoAtualFonte === 'acumulada') {
+              fotosAcumuladas.splice(fotoAtualIndex, 1);
+              fileCountHintEl.textContent = `${fotosAcumuladas.length} imagem(ns) acumulada(s).`;
+              reconstruirMiniaturas();
+              if (fotosAcumuladas.length === 0) {
+                  fecharPreview();
+              } else {
+                  let novoIndex = fotoAtualIndex >= fotosAcumuladas.length ? fotosAcumuladas.length - 1 : fotoAtualIndex;
+                  abrirPreview(fotosAcumuladas, novoIndex, null);
+              }
+          } else if (fotoAtualFonte === 'nota') {
+              const nota = notasPendentes[fotoAtualNotaIndex];
+              nota.fotos.splice(fotoAtualIndex, 1);
+              await saveNoteDB(nota);
+              rebuildNotasPendentesList(paginaAtualNotas);
+              if (nota.fotos.length === 0) {
+                  fecharPreview();
+              } else {
+                  let novoIndex = fotoAtualIndex >= nota.fotos.length ? nota.fotos.length - 1 : fotoAtualIndex;
+                  abrirPreview(nota.fotos, novoIndex, fotoAtualNotaIndex);
+              }
+          }
+          toast("Imagem excluída.");
+      }
+  }
+
   async function salvarNota() {
       const nota = {
           data: dataEl.value.trim(),
@@ -2099,6 +2382,7 @@
           valor: valorEl.value.trim(),
           fornecedor: fornEl.value.trim().toUpperCase(),
           obs: obsEl.value.trim(),
+          enviada: false,
           dataCriacao: new Date().toISOString()
       };
 
@@ -2107,18 +2391,22 @@
           return;
       }
       
+      const notaFinal = {...nota, fotos: fotosAcumuladas};
+
+      toast("✓ Salvando nota...");
+      
       try {
-          const savedId = await saveNoteFirestore(nota);
-          nota.id = savedId;
-          notasPendentes.push(nota);
-          rebuildSaida();
-          rebuildNotasPendentesList(paginaAtualNotas);
-          limparFormularioPrincipal();
-          adicionarFornecedor(nota.fornecedor);
-          toast("✓ Nota salva!");
+        const savedId = await saveNoteDB(notaFinal);
+        notaFinal.id = savedId;
+        notasPendentes.push(notaFinal);
+        rebuildSaida();
+        rebuildNotasPendentesList(paginaAtualNotas);
+        limparFormularioPrincipal();
+        adicionarFornecedor(notaFinal.fornecedor);
+        toast("✓ Nota salva!");
       } catch (e) {
-          console.error("Erro ao salvar nota:", e);
-          toast("✕ Erro ao salvar a nota. Tente novamente.");
+        console.error("Erro ao salvar nota:", e);
+        toast("✕ Erro ao salvar a nota. Tente novamente.");
       }
       
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2137,12 +2425,16 @@
     const year = today.getFullYear();
     dataEl.value = `${day}/${month}/${year}`;
     
-    fotosEl.value = '';
-    fotosSelecionadas = [];
+    fotosAcumuladas = [];
+    fotosContainer.style.display = 'block';
+    fileCountHintEl.textContent = 'Nenhuma imagem acumulada.';
+    fileLabelEl.classList.remove('active', 'disabled');
+    fileLabelEl.style.cursor = 'pointer';
+    fotosEl.disabled = false;
     miniaturasContainer.innerHTML = '';
-    fileCountHintEl.textContent = 'Nenhuma imagem selecionada.';
-    fileLabelEl.classList.remove('active');
     
+    fotosEl.value = null;
+
     nfEl.focus();
   }
 
@@ -2154,6 +2446,12 @@
       const year = today.getFullYear();
       dataEl.value = `${day}/${month}/${year}`;
       
+      document.getElementById('modalPreview').addEventListener('click', (e) => {
+        if (e.target.id === 'modalPreview' || e.target.classList.contains('modal-preview-conteudo')) {
+          fecharPreview();
+        }
+      });
+      
       popups.forEach(popup => {
           popup.addEventListener('click', (e) => {
               if (e.target.classList.contains('popup-modal')) {
@@ -2162,13 +2460,9 @@
           });
       });
 
-      fotosEl.addEventListener('change', (event) => {
-          fotosSelecionadas = Array.from(event.target.files);
-          mostrarMiniaturas();
-      });
-
+      // Configurar o menu suspenso de observações com as opções salvas
       const defaultObs = ["C/C CTI", "C/C SANTA CASA", "Recurso Proprio Santa Casa", "Recurso Proprio CTI", "PAGO", "REMESSA"];
-      defaultObs.forEach(obs => adicionarObservacao(obs));
+      defaultObs.forEach(obs => adicionarObservacao(obs)); // Adiciona as opções padrão se não existirem
       popularObservacoesList();
 
       nfEl.focus();
@@ -2181,6 +2475,8 @@
   vencEl.addEventListener('input', (e) => {
     formatarData(e.target);
   });
+  
+  // Event listener para o campo de valor removido para permitir vírgula
   
   fornEl.addEventListener('input', (e) => {
     e.target.value = e.target.value.toUpperCase();
@@ -2199,6 +2495,18 @@
   obsManageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       adicionarObservacaoManage();
+    }
+  });
+
+  fotosEl.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      fotosAcumuladas = fotosAcumuladas.concat(newFiles);
+      fileCountHintEl.textContent = `${fotosAcumuladas.length} imagem(ns) acumulada(s).`;
+      fileLabelEl.classList.add('active');
+      reconstruirMiniaturas();
+      
+      e.target.value = null;
     }
   });
 
