@@ -1174,14 +1174,14 @@
         </select>
       </div>
       
-      <div id="fotos-container" class="campo" style="display: none;">
+      <div id="fotos-container" class="campo">
         <label for="fotos">Anexar Imagens</label>
         <label for="fotos" class="file-input-label">
           <i class="fas fa-camera"></i> Selecionar Imagens
         </label>
-        <input type="file" id="fotos" multiple accept="image/*" disabled/>
+        <input type="file" id="fotos" multiple accept="image/*"/>
         <div class="status-container">
-            <span class="hint" id="fileCountHint">Nenhuma imagem acumulada.</span>
+            <span class="hint" id="fileCountHint">Nenhuma imagem selecionada.</span>
         </div>
         <div id="miniaturas-container"></div>
       </div>
@@ -1293,14 +1293,6 @@
         <button id="prevBtn" onclick="navegarFotos(-1)"><i class="fas fa-chevron-left"></i></button>
         <button id="nextBtn" onclick="navegarFotos(1)"><i class="fas fa-chevron-right"></i></button>
     </div>
-    <div class="modal-preview-bottom">
-      <button class="modal-preview-save" onclick="salvarFotoPreview()">
-          <i class="fas fa-download"></i> Salvar Imagem
-      </button>
-      <button class="modal-preview-delete" onclick="excluirFotoPreview()">
-          <i class="fas fa-trash-alt"></i> Excluir
-      </button>
-    </div>
   </div>
 
   <div id="toast" class="toast">✓ Linhas copiadas! Agora é só colar no Excel.</div>
@@ -1315,6 +1307,9 @@
   const itensPorPagina = 10;
   let paginaAtualNotas = 1;
   let paginaAtualHistorico = 1;
+  
+  let fotosSelecionadas = []; // Array para armazenar os arquivos de imagem localmente
+  let fotoAtualIndex = 0;
   
   const dataEl = document.getElementById('data');
   const nfEl = document.getElementById('nf');
@@ -1960,6 +1955,11 @@
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const year = today.getFullYear();
     dataEl.value = `${day}/${month}/${year}`;
+    
+    fotosEl.value = '';
+    fotosSelecionadas = [];
+    miniaturasContainer.innerHTML = '';
+    fileCountHintEl.textContent = 'Nenhuma imagem selecionada.';
 
     rebuildNotasPendentesList(1);
     
@@ -2033,7 +2033,62 @@
           toast(`Observação "${obs}" excluída.`);
       }
   }
+  
+  function mostrarMiniaturas() {
+    miniaturasContainer.innerHTML = '';
+    fotosSelecionadas.forEach((file, index) => {
+        const miniaturaWrapper = document.createElement('div');
+        miniaturaWrapper.classList.add('miniatura-wrapper');
 
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        img.dataset.index = index;
+        img.onclick = () => abrirPreview(index);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.classList.add('remove-foto');
+        removeBtn.innerHTML = '&times;';
+        removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            removerFoto(index);
+        };
+        
+        miniaturaWrapper.appendChild(img);
+        miniaturaWrapper.appendChild(removeBtn);
+        miniaturasContainer.appendChild(miniaturaWrapper);
+    });
+
+    fileCountHintEl.textContent = `${fotosSelecionadas.length} imagem(s) selecionada(s).`;
+    if (fotosSelecionadas.length > 0) {
+        fileLabelEl.classList.add('active');
+    } else {
+        fileLabelEl.classList.remove('active');
+    }
+  }
+
+  function removerFoto(index) {
+    fotosSelecionadas.splice(index, 1);
+    mostrarMiniaturas();
+    toast('Imagem removida.');
+  }
+
+  function abrirPreview(index) {
+    const modal = document.getElementById('modalPreview');
+    const imgPreview = document.getElementById('imgPreview');
+    imgPreview.src = URL.createObjectURL(fotosSelecionadas[index]);
+    modal.style.display = 'flex';
+    fotoAtualIndex = index;
+  }
+  
+  function fecharPreview() {
+    document.getElementById('modalPreview').style.display = 'none';
+  }
+  
+  function navegarFotos(direcao) {
+    fotoAtualIndex = (fotoAtualIndex + direcao + fotosSelecionadas.length) % fotosSelecionadas.length;
+    document.getElementById('imgPreview').src = URL.createObjectURL(fotosSelecionadas[fotoAtualIndex]);
+  }
+  
   async function salvarNota() {
       const nota = {
           data: dataEl.value.trim(),
@@ -2080,6 +2135,12 @@
     const year = today.getFullYear();
     dataEl.value = `${day}/${month}/${year}`;
     
+    fotosEl.value = '';
+    fotosSelecionadas = [];
+    miniaturasContainer.innerHTML = '';
+    fileCountHintEl.textContent = 'Nenhuma imagem selecionada.';
+    fileLabelEl.classList.remove('active');
+    
     nfEl.focus();
   }
 
@@ -2097,6 +2158,11 @@
                   closePopup(popup.id);
               }
           });
+      });
+
+      fotosEl.addEventListener('change', (event) => {
+          fotosSelecionadas = Array.from(event.target.files);
+          mostrarMiniaturas();
       });
 
       const defaultObs = ["C/C CTI", "C/C SANTA CASA", "Recurso Proprio Santa Casa", "Recurso Proprio CTI", "PAGO", "REMESSA"];
