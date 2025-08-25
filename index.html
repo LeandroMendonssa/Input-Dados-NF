@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   
   <style>
-    /* ... (Mantenha o CSS original aqui) ... */
+    /* ... (O CSS completo do código anterior) ... */
     :root {
       --bg-primary: #f0f2f5;
       --bg-card: #ffffff;
@@ -1094,7 +1094,6 @@
         cursor: pointer;
         padding: 0;
     }
-    
   </style>
   
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -1960,6 +1959,7 @@
     fotosSelecionadas = [];
     miniaturasContainer.innerHTML = '';
     fileCountHintEl.textContent = 'Nenhuma imagem selecionada.';
+    fileLabelEl.classList.remove('active');
 
     rebuildNotasPendentesList(1);
     
@@ -2067,9 +2067,11 @@
   }
 
   function removerFoto(index) {
-    fotosSelecionadas.splice(index, 1);
-    mostrarMiniaturas();
-    toast('Imagem removida.');
+    if (confirm("Tem certeza que deseja excluir esta foto?")) {
+        fotosSelecionadas.splice(index, 1);
+        mostrarMiniaturas();
+        toast('Imagem removida.');
+    }
   }
 
   function abrirPreview(index) {
