@@ -1599,8 +1599,8 @@
   }
   
   function getLinha(nota) {
-    let vencimentoSaida = nota.vencimento;
-    let obsSaida = nota.obs;
+    let vencimentoSaida = nota.vencimento || 'N/A';
+    let obsSaida = nota.obs || 'N/A';
 
     if (nota.obs === "REMESSA") {
       vencimentoSaida = "REMESSA";
@@ -1608,7 +1608,7 @@
     }
 
     return [
-      fmtData(nota.data), nota.nf, vencimentoSaida, nota.valor, "", nota.fornecedor, "", "", obsSaida
+      fmtData(nota.data), nota.nf || 'N/A', vencimentoSaida, nota.valor || 'N/A', "", nota.fornecedor || 'N/A', "", "", obsSaida
     ].join("\t");
   }
 
@@ -1648,7 +1648,7 @@
     listaNotasPendentes.innerHTML = '';
     paginaAtualNotas = pagina;
     
-    const notasInvertidas = [...notasPendentes]; // A consulta já retorna ordenado
+    const notasInvertidas = [...notasPendentes];
     
     const inicio = (pagina - 1) * itensPorPagina;
     const fim = inicio + itensPorPagina;
@@ -1669,7 +1669,9 @@
       if (nota.enviada) li.classList.add('nota-enviada');
       
       let fotoStatusHTML = '';
-      if (!nota.enviada) {
+      const notaNaoEnviada = !nota.enviada;
+      
+      if (notaNaoEnviada) {
         if (nota.numFotos > 0) {
           fotoStatusHTML = `
             <button class="whatsapp-btn" onclick="compartilharNota(${globalIndex})" title="Compartilhar via WhatsApp">
@@ -1710,7 +1712,7 @@
       const obsDisplay = nota.obs ? ` | Obs: ${nota.obs}` : '';
 
       li.innerHTML = `
-        <div class="nota-info"><b>${nota.fornecedor} ${nota.nf || ''}</b></div>
+        <div class="nota-info"><b>${nota.fornecedor || 'N/A'} ${nota.nf || ''}</b></div>
         <div class="nota-data">Criada em: ${formatarDataHora(nota.dataCriacao)}</div>
         <div class="nota-detalhes">
           Venc: ${nota.vencimento || 'N/A'} | Valor: ${nota.valor || 'N/A'}${obsDisplay}
@@ -1724,21 +1726,21 @@
           <div class="edit-fields-row">
             <div class="campo">
                 <label for="fornEdit-${globalIndex}">Fornecedor</label>
-                <input type="text" id="fornEdit-${globalIndex}" value="${nota.fornecedor}" oninput="this.value = this.value.toUpperCase()">
+                <input type="text" id="fornEdit-${globalIndex}" value="${nota.fornecedor || ''}" oninput="this.value = this.value.toUpperCase()">
             </div>
             <div class="campo">
                 <label for="nfEdit-${globalIndex}">NF</label>
-                <input type="text" id="nfEdit-${globalIndex}" value="${nota.nf}">
+                <input type="text" id="nfEdit-${globalIndex}" value="${nota.nf || ''}">
             </div>
             <div class="campo">
                 <label for="vencEdit-${globalIndex}">Vencimento</label>
-                <input type="text" id="vencEdit-${globalIndex}" value="${nota.vencimento}">
+                <input type="text" id="vencEdit-${globalIndex}" value="${nota.vencimento || ''}">
             </div>
           </div>
           <div class="edit-fields-row">
             <div class="campo" style="flex:1;">
                 <label for="valorEdit-${globalIndex}">Valor</label>
-                <input type="text" id="valorEdit-${globalIndex}" value="${nota.valor}">
+                <input type="text" id="valorEdit-${globalIndex}" value="${nota.valor || ''}">
             </div>
             <div class="campo" style="flex:1;">
                 <label for="obsEdit-${globalIndex}">Observações</label>
@@ -1825,7 +1827,7 @@
       const li = document.createElement('li');
       li.classList.add('nota-item');
       li.innerHTML = `
-        <div class="nota-info"><b>${getFirstWord(nota.fornecedor)} - ${nota.nf || 'N/A'}</b></div>
+        <div class="nota-info"><b>${getFirstWord(nota.fornecedor) || 'N/A'} - ${nota.nf || 'N/A'}</b></div>
         <div class="historico-detalhes">
           Movido para histórico em: ${nota.dataHistorico}
         </div>
@@ -1995,7 +1997,6 @@
     await deleteAllNotesDB();
     notasPendentes = [];
     historicoNotas = await getHistoryNotesDB();
-    fotosAcumuladas = [];
     
     rebuildSaida();
     
@@ -2011,6 +2012,7 @@
     const year = today.getFullYear();
     dataEl.value = `${day}/${month}/${year}`;
 
+    fotosAcumuladas = [];
     fotosContainer.style.display = 'block';
     fileCountHintEl.textContent = 'Nenhuma imagem acumulada.';
     fileLabelEl.classList.remove('active', 'disabled');
@@ -2051,47 +2053,54 @@
   }
 
   async function compartilharNota(index) {
-    try {
-      if (!navigator.share) {
-        toast("O compartilhamento de arquivos não é suportado pelo seu navegador.");
-        return;
+      try {
+          if (!navigator.share) {
+              toast("O compartilhamento de arquivos não é suportado pelo seu navegador.");
+              return;
+          }
+
+          const nota = notasPendentes[index];
+          const imagemSeparadora = await gerarImagemSeparadora(nota.fornecedor, nota.nf);
+          const arquivosParaCompartilhar = [];
+          
+          arquivosParaCompartilhar.push(new File([imagemSeparadora], 'separador.png', { type: 'image/png' }));
+          
+          // As fotos são as fotos globais acumuladas, não as que foram salvas no Firestore.
+          for (const foto of fotosAcumuladas) {
+              arquivosParaCompartilhar.push(foto);
+          }
+
+          const textoCompartilhar = `*${nota.fornecedor}* - ${nota.nf || ''}`;
+
+          if (navigator.canShare({ files: arquivosParaCompartilhar, text: textoCompartilhar })) {
+              await navigator.share({
+                  files: arquivosParaCompartilhar,
+                  text: textoCompartilhar
+              });
+
+              // As fotos NÃO são salvas no banco de dados do Firebase. A lógica de compartilhamento é local.
+              nota.enviada = true;
+              await saveNoteDB(nota);
+              rebuildNotasPendentesList(paginaAtualNotas);
+              
+              // Limpar fotos acumuladas SOMENTE APÓS O COMPARTILHAMENTO
+              fotosAcumuladas = [];
+              reconstruirMiniaturas();
+              fileCountHintEl.textContent = 'Nenhuma imagem acumulada.';
+              fileLabelEl.classList.remove('active');
+              
+              toast("✓ Conteúdo enviado com sucesso!");
+          } else {
+              toast("O compartilhamento de múltiplas fotos não é suportado pelo seu navegador.");
+          }
+      } catch (error) {
+          console.error('Erro ao compartilhar:', error);
+          if (error.name !== 'AbortError') {
+              toast("Erro ao compartilhar. Tente novamente.");
+          } else {
+              console.log("Compartilhamento cancelado pelo usuário.");
+          }
       }
-      
-      const nota = notasPendentes[index];
-      const imagemSeparadora = await gerarImagemSeparadora(nota.fornecedor, nota.nf);
-      const arquivosParaCompartilhar = [];
-      
-      arquivosParaCompartilhar.push(new File([imagemSeparadora], 'separador.png', { type: 'image/png' }));
-      
-      // As fotos são as fotos globais acumuladas, não as que foram salvas no Firestore.
-      for (const foto of fotosAcumuladas) {
-        arquivosParaCompartilhar.push(foto);
-      }
-      
-      const textoCompartilhar = `${nota.fornecedor} ${nota.nf || ''}`;
-      
-      if (navigator.canShare({ files: arquivosParaCompartilhar, text: textoCompartilhar })) {
-        await navigator.share({
-          files: arquivosParaCompartilhar,
-          text: textoCompartilhar
-        });
-        
-        // As fotos NÃO são salvas no banco de dados do Firebase. A lógica de compartilhamento é local.
-        nota.enviada = true;
-        await saveNoteDB(nota);
-        rebuildNotasPendentesList(paginaAtualNotas);
-        toast("✓ Conteúdo enviado com sucesso!");
-      } else {
-        toast("O compartilhamento de múltiplas fotos não é suportado pelo seu navegador.");
-      }
-    } catch (error) {
-      console.error('Erro ao compartilhar:', error);
-      if (error.name !== 'AbortError') {
-        toast("Erro ao compartilhar. Tente novamente.");
-      } else {
-        console.log("Compartilhamento cancelado pelo usuário.");
-      }
-    }
   }
 
   function adicionarPedido() {
@@ -2282,7 +2291,8 @@
           fornecedor: fornEl.value.trim().toUpperCase(),
           obs: obsEl.value.trim(),
           enviada: false,
-          dataCriacao: firebase.firestore.FieldValue.serverTimestamp()
+          dataCriacao: firebase.firestore.FieldValue.serverTimestamp(),
+          numFotos: fotosAcumuladas.length // Armazena a contagem de fotos para exibir no dashboard
       };
       
       if (!nota.fornecedor) {
@@ -2290,16 +2300,13 @@
           return;
       }
       
-      // O objeto notaParaSalvar NÃO inclui as fotos. Apenas os metadados.
-      const notaParaSalvar = { ...nota, numFotos: fotosAcumuladas.length };
-
       toast("✓ Salvando nota...");
       
       try {
-        const docRef = await db.collection('notas').add(notaParaSalvar);
+        const docRef = await db.collection('notas').add(nota);
         
         // Crie um objeto nota com o ID e sem fotos para o array local
-        const notaComId = { id: docRef.id, ...notaParaSalvar };
+        const notaComId = { id: docRef.id, ...nota };
         
         // Adicione o objeto ao array local
         notasPendentes.unshift(notaComId);
