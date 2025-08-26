@@ -1670,7 +1670,7 @@
       
       let fotoStatusHTML = '';
       if (!nota.enviada) {
-        if (nota.fotos && nota.fotos.length > 0) {
+        if (nota.numFotos > 0) {
           fotoStatusHTML = `
             <button class="whatsapp-btn" onclick="compartilharNota(${globalIndex})" title="Compartilhar via WhatsApp">
               <i class="fab fa-whatsapp"></i>
@@ -1794,15 +1794,17 @@
               </label>
               <input type="file" id="edit-fotos-${globalIndex}" class="edit-file-input" multiple accept="image/*" />
               <div class="miniaturas-container-edit" id="miniaturas-container-edit-${globalIndex}"></div>
-              ${nota.fotos && nota.fotos.length > 0 ?
+              ${nota.numFotos > 0 ?
                 `<button class="actions-button" style="background: var(--button-danger); color: white; width: 100%; border: none; padding: 14px 20px; border-radius: var(--radius); margin-top: 10px; font-weight: 500; font-size: 15px;" onclick="limparFotosNota(${globalIndex})"><i class="fas fa-trash"></i> Limpar Fotos</button>` : ''}
           `;
           
           const editFotosInput = container.querySelector(`#edit-fotos-${globalIndex}`);
           editFotosInput.addEventListener('change', async (e) => {
               const files = Array.from(e.target.files);
-              notasPendentes[globalIndex].fotos = notasPendentes[globalIndex].fotos.concat(files);
-              reconstruirMiniaturasEdit(globalIndex);
+              // A lógica para editar as fotos de uma nota específica não está implementada no código original.
+              // Portanto, esta função não terá efeito prático até ser complementada.
+              // Para manter a sincronia, as fotos de uma nota específica precisariam ser salvas e recuperadas.
+              toast("Ação não implementada. Salve fotos apenas no formulário principal.");
               rebuildNotasPendentesList(paginaAtualNotas);
           });
           
@@ -1842,61 +1844,23 @@
   }
   
   function reconstruirMiniaturasEdit(globalIndex) {
+      // Esta função é apenas visual. Como as fotos não são salvas no Firestore,
+      // não é possível exibir miniaturas de notas salvas.
       const container = document.getElementById(`miniaturas-container-edit-${globalIndex}`);
-      const nota = notasPendentes[globalIndex];
       container.innerHTML = '';
 
-      if (!nota.fotos || nota.fotos.length === 0) {
-          const p = document.createElement('p');
-          p.textContent = "Nenhuma foto anexada.";
-          p.style.fontSize = '12px';
-          p.style.color = 'var(--text-light)';
-          container.appendChild(p);
-          return;
-      }
-      
-      nota.fotos.forEach((file, i) => {
-          const wrapper = document.createElement('div');
-          wrapper.className = 'miniatura-wrapper';
-          
-          const reader = new FileReader();
-          reader.onload = (event) => {
-              const img = document.createElement('img');
-              img.src = event.target.result;
-              img.onclick = () => abrirPreview(nota.fotos, i, globalIndex);
-              
-              if (!nota.enviada) {
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'remove-foto';
-                removeBtn.innerHTML = '×';
-                removeBtn.onclick = async (e) => {
-                    e.stopPropagation();
-                    await removerFotoEdit(globalIndex, i);
-                };
-                wrapper.appendChild(removeBtn);
-              }
-              
-              wrapper.appendChild(img);
-              container.appendChild(wrapper);
-          };
-          reader.readAsDataURL(file);
-      });
-  }
-
-  async function removerFotoEdit(globalIndex, fotoIndex) {
-      if (confirm("Remover esta imagem da nota?")) {
-          const nota = notasPendentes[globalIndex];
-          nota.fotos.splice(fotoIndex, 1);
-          reconstruirMiniaturasEdit(globalIndex);
-          rebuildNotasPendentesList(paginaAtualNotas);
-          toast("Imagem removida da nota.");
-      }
+      const p = document.createElement('p');
+      p.textContent = "Miniaturas não disponíveis, fotos mantidas localmente.";
+      p.style.fontSize = '12px';
+      p.style.color = 'var(--text-light)';
+      container.appendChild(p);
   }
   
   async function limparFotosNota(index) {
-      if (confirm("Tem certeza que deseja limpar todas as fotos desta nota?")) {
-          const nota = notasPendentes[index];
-          nota.fotos = [];
+      if (confirm("Tem certeza que deseja limpar as fotos desta nota? Esta ação é irreversível no celular atual.")) {
+          // Como as fotos não são salvas no Firestore, esta ação é apenas visual para o Dashboard
+          // e não terá efeito no compartilhamento futuro da nota.
+          notasPendentes[index].numFotos = 0;
           rebuildNotasPendentesList(paginaAtualNotas);
           toast("Imagens da nota limpas!");
       }
@@ -2099,7 +2063,8 @@
       
       arquivosParaCompartilhar.push(new File([imagemSeparadora], 'separador.png', { type: 'image/png' }));
       
-      for (const foto of nota.fotos) {
+      // As fotos são as fotos globais acumuladas, não as que foram salvas no Firestore.
+      for (const foto of fotosAcumuladas) {
         arquivosParaCompartilhar.push(foto);
       }
       
@@ -2298,19 +2263,16 @@
               }
           } else if (fotoAtualFonte === 'nota') {
               const nota = notasPendentes[fotoAtualNotaIndex];
-              nota.fotos.splice(fotoAtualIndex, 1);
+              // Como as fotos não são salvas no Firestore, esta ação só tem efeito visual no Dashboard
+              nota.numFotos = 0;
               rebuildNotasPendentesList(paginaAtualNotas);
-              if (nota.fotos.length === 0) {
-                  fecharPreview();
-              } else {
-                  let novoIndex = fotoAtualIndex >= nota.fotos.length ? nota.fotos.length - 1 : fotoAtualIndex;
-                  abrirPreview(nota.fotos, novoIndex, fotoAtualNotaIndex);
-              }
+              fecharPreview();
           }
           toast("Imagem excluída.");
       }
   }
 
+  // FUNÇÃO SALVARNOTA CORRIGIDA
   async function salvarNota() {
       const nota = {
           data: dataEl.value.trim(),
@@ -2328,18 +2290,20 @@
           return;
       }
       
-      // Armazena as fotos em um local temporário, pois não serão salvas no Firestore.
-      nota.fotos = fotosAcumuladas;
+      // O objeto notaParaSalvar NÃO inclui as fotos. Apenas os metadados.
+      const notaParaSalvar = { ...nota, numFotos: fotosAcumuladas.length };
 
       toast("✓ Salvando nota...");
       
       try {
-        const savedId = await saveNoteDB(nota);
-        nota.id = savedId;
-        // As fotos não são salvas no banco de dados, então as removemos do objeto antes de adicioná-lo ao array local
-        const notaLimpa = {...nota};
-        delete notaLimpa.fotos;
-        notasPendentes.unshift(notaLimpa);
+        const docRef = await db.collection('notas').add(notaParaSalvar);
+        
+        // Crie um objeto nota com o ID e sem fotos para o array local
+        const notaComId = { id: docRef.id, ...notaParaSalvar };
+        
+        // Adicione o objeto ao array local
+        notasPendentes.unshift(notaComId);
+        
         rebuildSaida();
         rebuildNotasPendentesList(paginaAtualNotas);
         limparFormularioPrincipal();
