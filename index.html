@@ -1095,8 +1095,6 @@
     }
     
   </style>
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
 </head>
 <body>
   
@@ -1286,33 +1284,32 @@
 
   <div id="toast" class="toast">✓ Linhas copiadas! Agora é só colar no Excel.</div>
 
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
 <script>
-  // ** CONFIGURAÇÃO DO FIREBASE **
-  // Substitua as informações abaixo pelas suas credenciais do Firebase
+  // YOUR FIREBASE CONFIGURATION
   const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyAwcvJNJhLZ4Wqcw4Wz44XJ9kIdtqKJeJg",
+    authDomain: "relacaonf.firebaseapp.com",
+    projectId: "relacaonf",
+    storageBucket: "relacaonf.firebasestorage.app",
+    messagingSenderId: "773864981925",
+    appId: "1:773864981925:web:a4dadc51ec0a856832144c"
   };
 
-  // Inicializa o Firebase
+  // Initialize Firebase
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
-  
-  // ** FIM DA CONFIGURAÇÃO FIREBASE **
-
 
   let notasPendentes = [];
   let historicoNotas = [];
   let fotosAcumuladas = [];
   let fornecedoresSugeridos = [];
-  let observacoesSugeridas = []; // Nova variável para as observações
+  let observacoesSugeridas = [];
   let pedidosRecursos = {};
   let fotoAtualIndex = 0;
-  let fotoAtualFonte = 'acumulada'; // 'acumulada' ou 'nota'
+  let fotoAtualFonte = 'acumulada';
   let fotoAtualNotaIndex = null;
   
   const itensPorPagina = 10;
@@ -1343,109 +1340,57 @@
   const pedidoNumInput = document.getElementById('pedido-num');
   const pedidoRecursoSelect = document.getElementById('pedido-recurso');
   
-  const listaObservacoesManageEl = document.getElementById('lista-observacoes-manage'); // Novo elemento
-  const obsManageInput = document.getElementById('obs-manage'); // Novo input
+  const listaObservacoesManageEl = document.getElementById('lista-observacoes-manage');
+  const obsManageInput = document.getElementById('obs-manage');
 
   const popups = document.querySelectorAll('.popup-modal');
   
-  // FUNÇÕES DO FIREBASE (substituindo o IndexedDB)
+  // FUNÇÕES FIRESTORE
   async function saveNoteDB(nota) {
-      try {
-          // Remover o campo 'fotos' para não salvar no Firestore
-          const notaParaSalvar = {...nota};
-          delete notaParaSalvar.fotos;
-          
-          let docRef;
-          if (nota.id) {
-              docRef = await db.collection('notas').doc(nota.id).set(notaParaSalvar);
-              return nota.id;
-          } else {
-              docRef = await db.collection('notas').add(notaParaSalvar);
-              return docRef.id;
-          }
-      } catch (e) {
-          console.error("Erro ao salvar nota no Firestore:", e);
-          throw e;
-      }
+    if (nota.id) {
+      const notaSemId = {...nota};
+      delete notaSemId.id;
+      return await db.collection('notas').doc(nota.id).update(notaSemId);
+    } else {
+      const docRef = await db.collection('notas').add(nota);
+      return docRef.id;
+    }
   }
 
   async function saveHistoryNoteDB(nota) {
-      try {
-          const notaParaSalvar = {
-              fornecedor: nota.fornecedor,
-              nf: nota.nf,
-              dataHistorico: new Date().toISOString()
-          };
-          await db.collection('historico').add(notaParaSalvar);
-      } catch (e) {
-          console.error("Erro ao salvar histórico no Firestore:", e);
-          throw e;
-      }
+    return await db.collection('historico').add(nota);
   }
 
   async function getNotesDB() {
-      try {
-          const snapshot = await db.collection('notas').get();
-          const notas = [];
-          snapshot.forEach(doc => {
-              notas.push({ id: doc.id, ...doc.data(), fotos: [] }); // Adiciona o campo fotos vazio
-          });
-          return notas;
-      } catch (e) {
-          console.error("Erro ao obter notas do Firestore:", e);
-          return [];
-      }
+    const snapshot = await db.collection('notas').orderBy('dataCriacao', 'desc').get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   async function getHistoryNotesDB() {
-      try {
-          const snapshot = await db.collection('historico').orderBy('dataHistorico', 'desc').get();
-          const historico = [];
-          snapshot.forEach(doc => {
-              historico.push({ id: doc.id, ...doc.data() });
-          });
-          return historico;
-      } catch (e) {
-          console.error("Erro ao obter histórico do Firestore:", e);
-          return [];
-      }
+    const snapshot = await db.collection('historico').orderBy('dataHistorico', 'desc').get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   async function deleteNoteDB(id) {
-      try {
-          await db.collection('notas').doc(id).delete();
-      } catch (e) {
-          console.error("Erro ao deletar nota do Firestore:", e);
-          throw e;
-      }
+    return await db.collection('notas').doc(id).delete();
   }
   
   async function deleteAllNotesDB() {
-    try {
-        const batch = db.batch();
-        const snapshot = await db.collection('notas').get();
-        snapshot.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-        await batch.commit();
-    } catch (e) {
-        console.error("Erro ao deletar todas as notas:", e);
-        throw e;
-    }
+    const batch = db.batch();
+    const snapshot = await db.collection('notas').get();
+    snapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    return await batch.commit();
   }
 
   async function deleteAllHistoryDB() {
-    try {
-        const batch = db.batch();
-        const snapshot = await db.collection('historico').get();
-        snapshot.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-        await batch.commit();
-    } catch (e) {
-        console.error("Erro ao deletar histórico:", e);
-        throw e;
-    }
+    const batch = db.batch();
+    const snapshot = await db.collection('historico').get();
+    snapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    return await batch.commit();
   }
   
   async function carregarEstado() {
@@ -1454,7 +1399,7 @@
       if (savedForn) fornecedoresSugeridos = JSON.parse(savedForn);
       popularDatalist(fornDatalist);
 
-      const savedObs = localStorage.getItem('observacoes'); // Carrega observações
+      const savedObs = localStorage.getItem('observacoes');
       if (savedObs) observacoesSugeridas = JSON.parse(savedObs);
       popularObservacoesList();
       
@@ -1472,8 +1417,7 @@
         notasPendentes = await getNotesDB();
         historicoNotas = await getHistoryNotesDB();
       } catch (e) {
-        console.error("Erro ao carregar dados do Firebase:", e);
-        // Em caso de erro, inicia com arrays vazios
+        console.error("Erro ao carregar dados do Firestore:", e);
         notasPendentes = [];
         historicoNotas = [];
       }
@@ -1486,7 +1430,7 @@
   async function salvarEstado() {
     // Salva fornecedores, observações e pedidos no localStorage
     localStorage.setItem('fornecedores', JSON.stringify(fornecedoresSugeridos));
-    localStorage.setItem('observacoes', JSON.stringify(observacoesSugeridas)); // Salva observações
+    localStorage.setItem('observacoes', JSON.stringify(observacoesSugeridas));
     localStorage.setItem('pedidosRecursos', JSON.stringify(pedidosRecursos));
   }
   
@@ -1628,7 +1572,13 @@
   }
 
   function formatarDataHora(data) {
-    const d = new Date(data);
+    if (!data) return '';
+    let d;
+    if (data.seconds) { // Firestore Timestamp
+      d = new Date(data.seconds * 1000);
+    } else { // ISO String
+      d = new Date(data);
+    }
     const dia = String(d.getDate()).padStart(2, '0');
     const mes = String(d.getMonth() + 1).padStart(2, '0');
     const ano = d.getFullYear();
@@ -1652,7 +1602,6 @@
     let vencimentoSaida = nota.vencimento;
     let obsSaida = nota.obs;
 
-    // Lógica para a modalidade REMESSA
     if (nota.obs === "REMESSA") {
       vencimentoSaida = "REMESSA";
       obsSaida = "Recurso Proprio Santa Casa";
@@ -1699,8 +1648,7 @@
     listaNotasPendentes.innerHTML = '';
     paginaAtualNotas = pagina;
     
-    // Inverte a lista para mostrar as notas mais novas no topo
-    const notasInvertidas = [...notasPendentes].reverse();
+    const notasInvertidas = [...notasPendentes]; // A consulta já retorna ordenado
     
     const inicio = (pagina - 1) * itensPorPagina;
     const fim = inicio + itensPorPagina;
@@ -1713,12 +1661,11 @@
     }
     
     notasPagina.forEach((nota, index) => {
-      // Encontra o índice original da nota no array notasPendentes
       const globalIndex = notasPendentes.findIndex(n => n.id === nota.id);
       
       const li = document.createElement('li');
       li.classList.add('nota-item');
-      li.dataset.noteId = nota.id; // Adicionado para a correção
+      li.dataset.noteId = nota.id;
       if (nota.enviada) li.classList.add('nota-enviada');
       
       let fotoStatusHTML = '';
@@ -1760,7 +1707,6 @@
         `;
       }
       
-      // Implementação da exibição da observação nos cards
       const obsDisplay = nota.obs ? ` | Obs: ${nota.obs}` : '';
 
       li.innerHTML = `
@@ -1811,7 +1757,6 @@
       listaNotasPendentes.appendChild(li);
       
       const obsSelectEdit = li.querySelector(`#obsEdit-${globalIndex}`);
-      // Populando a lista de observações no painel de edição
       const placeholderOpt = document.createElement('option');
       placeholderOpt.value = '';
       placeholderOpt.textContent = 'Recurso a ser pago';
@@ -1856,11 +1801,7 @@
           const editFotosInput = container.querySelector(`#edit-fotos-${globalIndex}`);
           editFotosInput.addEventListener('change', async (e) => {
               const files = Array.from(e.target.files);
-              if (!notasPendentes[globalIndex].fotos) {
-                  notasPendentes[globalIndex].fotos = [];
-              }
               notasPendentes[globalIndex].fotos = notasPendentes[globalIndex].fotos.concat(files);
-              await saveNoteDB(notasPendentes[globalIndex]);
               reconstruirMiniaturasEdit(globalIndex);
               rebuildNotasPendentesList(paginaAtualNotas);
           });
@@ -1876,7 +1817,7 @@
         return;
     }
     
-    const historicoInvertido = [...historicoNotas].reverse();
+    const historicoInvertido = [...historicoNotas];
     
     historicoInvertido.forEach(nota => {
       const li = document.createElement('li');
@@ -1884,7 +1825,7 @@
       li.innerHTML = `
         <div class="nota-info"><b>${getFirstWord(nota.fornecedor)} - ${nota.nf || 'N/A'}</b></div>
         <div class="historico-detalhes">
-          Movido para histórico em: ${formatarDataHora(nota.dataHistorico)}
+          Movido para histórico em: ${nota.dataHistorico}
         </div>
       `;
       listaHistoricoEl.appendChild(li);
@@ -1946,7 +1887,6 @@
       if (confirm("Remover esta imagem da nota?")) {
           const nota = notasPendentes[globalIndex];
           nota.fotos.splice(fotoIndex, 1);
-          await saveNoteDB(nota);
           reconstruirMiniaturasEdit(globalIndex);
           rebuildNotasPendentesList(paginaAtualNotas);
           toast("Imagem removida da nota.");
@@ -1957,7 +1897,6 @@
       if (confirm("Tem certeza que deseja limpar todas as fotos desta nota?")) {
           const nota = notasPendentes[index];
           nota.fotos = [];
-          await saveNoteDB(nota);
           rebuildNotasPendentesList(paginaAtualNotas);
           toast("Imagens da nota limpas!");
       }
@@ -2084,7 +2023,7 @@
         const notaHistorico = {
             fornecedor: nota.fornecedor,
             nf: nota.nf,
-            dataHistorico: nota.dataCriacao || new Date().toISOString()
+            dataHistorico: formatarDataHora(new Date())
         };
         await saveHistoryNoteDB(notaHistorico);
     }
@@ -2118,7 +2057,7 @@
     
     toast("Conteúdo limpo e notas movidas para o histórico.");
 
-    nfEl.focus(); // Coloca o cursor no campo NF
+    nfEl.focus();
   }
 
   async function gerarImagemSeparadora(fornecedor, nf) {
@@ -2172,8 +2111,8 @@
           text: textoCompartilhar
         });
         
+        // As fotos NÃO são salvas no banco de dados do Firebase. A lógica de compartilhamento é local.
         nota.enviada = true;
-        nota.fotos = [];
         await saveNoteDB(nota);
         rebuildNotasPendentesList(paginaAtualNotas);
         toast("✓ Conteúdo enviado com sucesso!");
@@ -2236,7 +2175,6 @@
     }
   }
 
-  // FUNÇÕES PARA ADICIONAR/DELETAR OBSERVAÇÕES
   function adicionarObservacaoManage() {
       const obs = obsManageInput.value.trim();
       if (obs) {
@@ -2361,7 +2299,6 @@
           } else if (fotoAtualFonte === 'nota') {
               const nota = notasPendentes[fotoAtualNotaIndex];
               nota.fotos.splice(fotoAtualIndex, 1);
-              await saveNoteDB(nota);
               rebuildNotasPendentesList(paginaAtualNotas);
               if (nota.fotos.length === 0) {
                   fecharPreview();
@@ -2383,26 +2320,30 @@
           fornecedor: fornEl.value.trim().toUpperCase(),
           obs: obsEl.value.trim(),
           enviada: false,
-          dataCriacao: new Date().toISOString()
+          dataCriacao: firebase.firestore.FieldValue.serverTimestamp()
       };
-
+      
       if (!nota.fornecedor) {
           toast("O campo 'Nome do Fornecedor' é obrigatório.");
           return;
       }
       
-      const notaFinal = {...nota, fotos: fotosAcumuladas};
+      // Armazena as fotos em um local temporário, pois não serão salvas no Firestore.
+      nota.fotos = fotosAcumuladas;
 
       toast("✓ Salvando nota...");
       
       try {
-        const savedId = await saveNoteDB(notaFinal);
-        notaFinal.id = savedId;
-        notasPendentes.push(notaFinal);
+        const savedId = await saveNoteDB(nota);
+        nota.id = savedId;
+        // As fotos não são salvas no banco de dados, então as removemos do objeto antes de adicioná-lo ao array local
+        const notaLimpa = {...nota};
+        delete notaLimpa.fotos;
+        notasPendentes.unshift(notaLimpa);
         rebuildSaida();
         rebuildNotasPendentesList(paginaAtualNotas);
         limparFormularioPrincipal();
-        adicionarFornecedor(notaFinal.fornecedor);
+        adicionarFornecedor(nota.fornecedor);
         toast("✓ Nota salva!");
       } catch (e) {
         console.error("Erro ao salvar nota:", e);
@@ -2460,9 +2401,8 @@
           });
       });
 
-      // Configurar o menu suspenso de observações com as opções salvas
       const defaultObs = ["C/C CTI", "C/C SANTA CASA", "Recurso Proprio Santa Casa", "Recurso Proprio CTI", "PAGO", "REMESSA"];
-      defaultObs.forEach(obs => adicionarObservacao(obs)); // Adiciona as opções padrão se não existirem
+      defaultObs.forEach(obs => adicionarObservacao(obs));
       popularObservacoesList();
 
       nfEl.focus();
@@ -2475,8 +2415,6 @@
   vencEl.addEventListener('input', (e) => {
     formatarData(e.target);
   });
-  
-  // Event listener para o campo de valor removido para permitir vírgula
   
   fornEl.addEventListener('input', (e) => {
     e.target.value = e.target.value.toUpperCase();
