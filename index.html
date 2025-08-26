@@ -914,6 +914,16 @@
       to { opacity: 1; }
     }
 
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
     @keyframes slideInTop {
       from { transform: translateY(-30px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
@@ -1286,9 +1296,9 @@
 
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-  
+
 <script>
-  // Firebase Configuration
+  // Configuração Firebase (mesmas credenciais fornecidas)
   const firebaseConfig = {
     apiKey: "AIzaSyAwcvJNJhLZ4Wqcw4Wz44XJ9kIdtqKJeJg",
     authDomain: "relacaonf.firebaseapp.com",
@@ -1297,21 +1307,18 @@
     messagingSenderId: "773864981925",
     appId: "1:773864981925:web:a4dadc51ec0a856832144c"
   };
-
-  // Initialize Firebase
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
-
-  // Firebase references
   const notasRef = db.ref('notas');
   const historicoRef = db.ref('historico');
   const fornecedoresRef = db.ref('fornecedores');
   const observacoesRef = db.ref('observacoes');
   const pedidosRef = db.ref('pedidos');
 
+  // Variáveis globais - FOTOS PERMANECEM LOCAIS
   let notasPendentes = [];
   let historicoNotas = [];
-  let fotosAcumuladas = [];
+  let fotosAcumuladas = []; // Fotos locais, não sincroniza
   let fornecedoresSugeridos = [];
   let observacoesSugeridas = [];
   let pedidosRecursos = {};
@@ -1323,6 +1330,7 @@
   let paginaAtualNotas = 1;
   let paginaAtualHistorico = 1;
   
+  // Elementos DOM
   const dataEl = document.getElementById('data');
   const nfEl = document.getElementById('nf');
   const vencEl = document.getElementById('venc');
@@ -1351,7 +1359,7 @@
   const obsManageInput = document.getElementById('obs-manage');
   const popups = document.querySelectorAll('.popup-modal');
   
-  // FUNÇÕES DO FIREBASE
+  // FUNÇÕES DO FIREBASE - SÓ PARA DADOS DE TEXTO
   function saveToFirebase(ref, data) {
     if (!data.id) {
         data.id = ref.push().key;
@@ -1367,9 +1375,16 @@
     notasRef.on('value', snapshot => {
       notasPendentes = [];
       snapshot.forEach(child => {
-        notasPendentes.push(child.val());
+        const notaData = child.val();
+        // Garante que fotos não venham do Firebase
+        notaData.fotos = [];
+        notasPendentes.push(notaData);
       });
       notasPendentes.sort((a, b) => new Date(a.dataCriacao) - new Date(b.dataCriacao));
+      
+      // Carrega fotos locais
+      carregarFotosLocais();
+      
       rebuildNotasPendentesList(paginaAtualNotas);
       rebuildSaida();
     });
@@ -1403,6 +1418,62 @@
       pedidosRecursos = snapshot.val() || {};
       popularListaPedidos();
     });
+  }
+
+  // GERENCIAMENTO LOCAL DE FOTOS
+  function salvarFotosLocais() {
+    const fotosParaSalvar = {};
+    notasPendentes.forEach(nota => {
+      if (nota.fotos && nota.fotos.length > 0) {
+        fotosParaSalvar[nota.id] = nota.fotos.map(foto => {
+          if (foto instanceof File) {
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (e) => resolve(e.target.result);
+              reader.readAsDataURL(foto);
+            });
+          }
+          return foto;
+        });
+      }
+    });
+    
+    Promise.all(
+      Object.entries(fotosParaSalvar).map(async ([id, fotos]) => {
+        const fotosResolvidas = await Promise.all(fotos);
+        return [id, fotosResolvidas];
+      })
+    ).then(fotosArray => {
+      const fotosObj = Object.fromEntries(fotosArray);
+      localStorage.setItem('notasFotos', JSON.stringify(fotosObj));
+    });
+  }
+
+  function carregarFotosLocais() {
+    const fotosLocais = localStorage.getItem('notasFotos');
+    if (fotosLocais) {
+      const fotosObj = JSON.parse(fotosLocais);
+      notasPendentes.forEach(nota => {
+        if (fotosObj[nota.id]) {
+          nota.fotos = fotosObj[nota.id].map(fotoBase64 => {
+            // Converte base64 de volta para File
+            return dataURLtoFile(fotoBase64, `foto_${Date.now()}.jpg`);
+          });
+        }
+      });
+    }
+  }
+
+  function dataURLtoFile(dataurl, filename) {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while(n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, {type: mime});
   }
 
   function carregarEstado() {
@@ -1770,6 +1841,7 @@
             const files = Array.from(e.target.files);
             const notaToUpdate = notasPendentes.find(n => n.id === id);
             notaToUpdate.fotos = (notaToUpdate.fotos || []).concat(files);
+            salvarFotosLocais();
             reconstruirMiniaturasEdit(id);
             rebuildNotasPendentesList(paginaAtualNotas);
         });
@@ -1857,6 +1929,7 @@
     if (confirm("Remover esta imagem da nota?")) {
       const nota = notasPendentes.find(n => n.id === id);
       nota.fotos.splice(fotoIndex, 1);
+      salvarFotosLocais();
       reconstruirMiniaturasEdit(id);
       rebuildNotasPendentesList(paginaAtualNotas);
       toast("Imagem removida da nota.");
@@ -1867,6 +1940,7 @@
     if (confirm("Tem certeza que deseja limpar todas as fotos desta nota?")) {
       const nota = notasPendentes.find(n => n.id === id);
       nota.fotos = [];
+      salvarFotosLocais();
       rebuildNotasPendentesList(paginaAtualNotas);
       toast("Imagens da nota limpas!");
     }
@@ -1942,8 +2016,13 @@
     nota.valor = panel.querySelector(`#valorEdit-${id}`).value.trim();
     nota.obs = panel.querySelector(`#obsEdit-${id}`).value.trim();
     
-    saveToFirebase(notasRef, nota).then(() => {
+    // NUNCA salva fotos no Firebase!
+    const notaParaFirebase = { ...nota };
+    delete notaParaFirebase.fotos;
+    
+    saveToFirebase(notasRef, notaParaFirebase).then(() => {
         adicionarFornecedor(nota.fornecedor);
+        salvarFotosLocais();
         toast('✓ Nota editada e salva!');
     }).catch(error => {
         console.error("Erro ao salvar edição:", error);
@@ -1954,6 +2033,11 @@
   function deletarNota(id) {
     if (confirm("Tem certeza que deseja excluir esta nota?")) {
       deleteFromFirebase(notasRef, id).then(() => {
+        // Remove fotos locais também
+        const fotosLocais = JSON.parse(localStorage.getItem('notasFotos') || '{}');
+        delete fotosLocais[id];
+        localStorage.setItem('notasFotos', JSON.stringify(fotosLocais));
+        
         toast("🗑️ Nota excluída!");
       }).catch(error => {
         console.error("Erro ao excluir nota:", error);
@@ -2007,6 +2091,8 @@
     }
 
     db.ref().update(updates).then(() => {
+      // Limpa fotos locais
+      localStorage.removeItem('notasFotos');
       fotosAcumuladas = [];
       limparFormularioPrincipal();
       toast("Conteúdo limpo e notas movidas para o histórico.");
@@ -2052,12 +2138,11 @@
       
       const nota = notasPendentes.find(n => n.id === id);
       const imagemSeparadora = await gerarImagemSeparadora(nota.fornecedor, nota.nf);
-      const arquivosParaCompartilhar = [];
-      
-      arquivosParaCompartilhar.push(new File([imagemSeparadora], 'separador.png', { type: 'image/png' }));
-      
-      for (const foto of nota.fotos) {
-        arquivosParaCompartilhar.push(foto);
+      let arquivosParaCompartilhar = [new File([imagemSeparadora], 'separador.png', { type: 'image/png' })];
+
+      // Usa só fotos locais para compartilhar!
+      if (nota.fotos && nota.fotos.length > 0) {
+        arquivosParaCompartilhar = arquivosParaCompartilhar.concat(nota.fotos);
       }
       
       const textoCompartilhar = `${nota.fornecedor} ${nota.nf || ''}`;
@@ -2069,8 +2154,14 @@
         });
         
         nota.enviada = true;
-        nota.fotos = [];
-        saveToFirebase(notasRef, nota);
+        nota.fotos = []; // Limpa fotos locais após envio
+        salvarFotosLocais();
+        
+        // Salva no Firebase apenas o status (sem fotos)
+        const notaParaFirebase = { ...nota };
+        delete notaParaFirebase.fotos;
+        saveToFirebase(notasRef, notaParaFirebase);
+        
         toast("✓ Conteúdo enviado com sucesso!");
       } else {
         toast("O compartilhamento de múltiplas fotos não é suportado pelo seu navegador.");
@@ -2253,6 +2344,7 @@
       } else if (fotoAtualFonte === 'nota') {
         const nota = notasPendentes.find(n => n.id === fotoAtualNotaId);
         nota.fotos.splice(fotoAtualIndex, 1);
+        salvarFotosLocais();
         rebuildNotasPendentesList(paginaAtualNotas);
         if (nota.fotos.length === 0) {
           fecharPreview();
@@ -2265,6 +2357,7 @@
     }
   }
 
+  // SALVAR NOTA - Somente texto no Firebase
   function salvarNota() {
     const nota = {
       data: dataEl.value.trim(),
@@ -2273,9 +2366,9 @@
       valor: valorEl.value.trim(),
       fornecedor: fornEl.value.trim().toUpperCase(),
       obs: obsEl.value.trim(),
-      fotos: fotosAcumuladas,
       enviada: false,
       dataCriacao: new Date().toISOString()
+      // NÃO inclui fotos aqui!
     };
 
     if (!nota.fornecedor) {
@@ -2285,7 +2378,18 @@
 
     toast("✓ Salvando nota...");
     
-    saveToFirebase(notasRef, nota).then(() => {
+    saveToFirebase(notasRef, nota).then((notaId) => {
+      // Salva fotos localmente
+      if (fotosAcumuladas.length > 0) {
+        const notaCompleta = { ...nota, id: notaId, fotos: fotosAcumuladas };
+        const notaIndex = notasPendentes.findIndex(n => n.id === notaId);
+        if (notaIndex !== -1) {
+          notasPendentes[notaIndex].fotos = fotosAcumuladas;
+        }
+        salvarFotosLocais();
+      }
+      
+      fotosAcumuladas = [];
       limparFormularioPrincipal();
       adicionarFornecedor(nota.fornecedor);
       toast("✓ Nota salva!");
@@ -2293,7 +2397,6 @@
       console.error("Erro ao salvar nota:", error);
       toast("✕ Erro ao salvar a nota. Tente novamente.");
     });
-    
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -2380,6 +2483,7 @@
     }
   });
 
+  // Fotos só locais, nunca no Firebase!
   fotosEl.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
       const newFiles = Array.from(e.target.files);
@@ -2387,7 +2491,6 @@
       fileCountHintEl.textContent = `${fotosAcumuladas.length} imagem(ns) acumulada(s).`;
       fileLabelEl.classList.add('active');
       reconstruirMiniaturas();
-      
       e.target.value = null;
     }
   });
